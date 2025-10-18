@@ -48,3 +48,4 @@ logs/
 # MP3 files
 *.mp3analysis_reports/
 *.json
+DEMO_GUIDE.md
