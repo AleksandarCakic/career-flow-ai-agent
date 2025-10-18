@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     twilio_auth_token: str
     twilio_phone_number: str
     deepgram_api_key: str
-    anthropic_api_key: str
+    openai_api_key: str 
     elevenlabs_api_key: str
     environment: Literal["development", "staging", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"

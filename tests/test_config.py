@@ -16,7 +16,7 @@ def test_settings_has_required_keys():
     assert hasattr(settings, "twilio_auth_token")
     assert hasattr(settings, "twilio_phone_number")
     assert hasattr(settings, "deepgram_api_key")
-    assert hasattr(settings, "anthropic_api_key")
+    assert hasattr(settings, "openai_api_key")
     assert hasattr(settings, "elevenlabs_api_key")
 
 
