@@ -1,6 +1,6 @@
 """Analytics service for tracking conversations and user interactions."""
 from datetime import datetime, UTC
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
 import uuid
 from typing import Optional, List, Dict, Any
@@ -101,8 +101,10 @@ class AnalyticsService:
         call_sid: str
     ) -> Optional[Conversation]:
         """Get conversation by Twilio call SID."""
-        return db.query(Conversation).filter(Conversation.call_sid == call_sid).first()
-    
+        return db.query(Conversation).options(selectinload(Conversation.messages)).filter(
+        Conversation.call_sid == call_sid
+    ).first()    
+
     def get_conversation_messages(
         self,
         db: Session,
@@ -148,9 +150,9 @@ class AnalyticsService:
         limit: int = 100
     ) -> List[Conversation]:
         """Get all conversations with pagination."""
-        return db.query(Conversation).order_by(
-            Conversation.started_at.desc()
-        ).offset(skip).limit(limit).all()
+        return db.query(Conversation).options(selectinload(Conversation.messages)).order_by(
+        Conversation.started_at.desc()
+    ).offset(skip).limit(limit).all()
     
     def get_all_users(
         self,

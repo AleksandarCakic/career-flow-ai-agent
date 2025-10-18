@@ -7,6 +7,7 @@ import uuid
 from src.database import get_db
 from src.services.analytics_service import AnalyticsService
 from src.models import Conversation, User
+from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 analytics_service = AnalyticsService()

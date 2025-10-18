@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import webhooks, analytics, admin  # Add admin import
+from src.api.routes import webhooks, analytics, admin 
 from src.database import engine, Base
 from src.config import settings
 
@@ -37,7 +37,7 @@ app.add_middleware(
 # Include routers
 app.include_router(webhooks.router, prefix="/webhooks")
 app.include_router(analytics.router, prefix="/analytics")
-app.include_router(admin.router)  # Add this line
+app.include_router(admin.router) 
 
 @app.get("/")
 async def root():

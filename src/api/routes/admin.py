@@ -1,45 +1,40 @@
 """Admin routes for prompt management."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Dict, Any
 
 from src.database import get_db
-from src.services.prompt_optimizer_service import PromptOptimizer  # Note: Updated filename
+from src.services.prompt_optimizer_service import PromptOptimizerService
 from src.services.voice_service import VoiceService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-optimizer = PromptOptimizer()
 voice_service = VoiceService()
 
 
 @router.post("/analyze-conversations")
 async def analyze_conversations(
-    hours: int = 24,
-    min_conversations: int = 1,  # Lower default for testing
+    hours: int = 168,  # Default: last 7 days
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """Analyze recent conversations and generate improvement suggestions."""
     
-    # Analyze conversations
-    analysis = optimizer.analyze_recent_conversations(
-        db, 
-        hours=hours,
-        min_conversations=min_conversations
-    )
-    
-    if analysis["status"] != "analyzed":
-        return analysis
-    
-    # Generate improvements
-    improvements = optimizer.generate_prompt_improvements(
-        analysis=analysis,
-        current_prompt=voice_service.system_prompt
-    )
-    
-    return {
-        "analysis": analysis,
-        "improvements": improvements
-    }
+    try:
+        # Initialize service (create new instance per request)
+        optimizer = PromptOptimizerService()
+        
+        # Analyze conversations (does both pattern detection AND AI recommendations)
+        result = optimizer.analyze_conversations(
+            db=db,
+            hours_back=hours
+        )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analysis failed: {str(e)}"
+        )
 
 
 @router.get("/current-prompt")
