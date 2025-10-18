@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 from contextlib import asynccontextmanager
 from src.config.settings import settings
-from src.api.routes import webhooks, deepgram
+from src.api.routes import webhooks, deepgram, voice_pipeline
 import logging
 from pydantic import BaseModel, HttpUrl
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,11 +37,7 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Include routers
-app.include_router(webhooks.router, tags=["webhooks"])
-app.include_router(deepgram.router, prefix="/deepgram")
-
-# Add CORS middleware
+# Add CORS middleware BEFORE routers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Change to specific domains in production!
@@ -49,6 +45,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers AFTER middleware
+app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
+app.include_router(deepgram.router, prefix="/deepgram", tags=["Deepgram"])
+app.include_router(voice_pipeline.router, prefix="/voice-pipeline", tags=["Voice Pipeline"])
+
 
 @app.get("/")
 async def root():
