@@ -1,6 +1,6 @@
 """Tests for configuration management."""
 import pytest
-from src.config import settings
+from src.config.settings import settings
 
 
 def test_settings_loads_from_env():

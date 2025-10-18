@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.responses import Response
 from contextlib import asynccontextmanager
-from src.config import settings
+from src.config.settings import settings
 from src.api.routes import webhooks
 import logging
 
