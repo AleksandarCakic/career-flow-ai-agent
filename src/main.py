@@ -1,7 +1,9 @@
 """Main FastAPI application."""
 from fastapi import FastAPI
+from fastapi.responses import Response
 from contextlib import asynccontextmanager
 from src.config import settings
+from src.api.routes import webhooks
 import logging
 
 # Configure logging
@@ -30,6 +32,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+# Include routers
+app.include_router(webhooks.router, tags=["webhooks"])
 
 
 @app.get("/")
