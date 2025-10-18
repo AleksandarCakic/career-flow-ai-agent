@@ -1,5 +1,16 @@
-"""Database models."""
-from src.models.base import Base
-from src.models.conversation import Conversation, Message
+"""Models package."""
+from src.models.models import (
+    User,
+    Conversation,
+    Message,
+    ConversationStatus,
+    MessageRole
+)
 
-__all__ = ["Base", "Conversation", "Message"]
+__all__ = [
+    "User",
+    "Conversation",
+    "Message",
+    "ConversationStatus",
+    "MessageRole",
+]

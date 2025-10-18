@@ -1,199 +1,171 @@
-"""Analytics and conversation history endpoints."""
+"""Analytics endpoints for viewing conversation data."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, UUID4
-from datetime import datetime
+import uuid
 
-from src.database import get_db_session
+from src.database import get_db
 from src.services.analytics_service import AnalyticsService
-from src.models.conversation import Conversation, Message
+from src.models import Conversation, User
 
 router = APIRouter()
+analytics_service = AnalyticsService()
 
 
-# Pydantic schemas for responses
-class MessageResponse(BaseModel):
-    """Message response schema."""
-    id: UUID4
-    role: str
-    content: str
-    timestamp: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-class ConversationResponse(BaseModel):
-    """Conversation response schema."""
-    id: UUID4
-    call_sid: str
-    phone_number: str
-    started_at: datetime
-    ended_at: Optional[datetime] = None
-    duration_seconds: Optional[int] = None
-    status: str
-    message_count: Optional[int] = 0
-    
-    class Config:
-        from_attributes = True
-
-
-class ConversationDetailResponse(BaseModel):
-    """Detailed conversation with messages."""
-    id: UUID4
-    call_sid: str
-    phone_number: str
-    started_at: datetime
-    ended_at: Optional[datetime] = None
-    duration_seconds: Optional[int] = None
-    status: str
-    messages: List[MessageResponse] = []
-    
-    class Config:
-        from_attributes = True
-
-
-class StatsResponse(BaseModel):
-    """Analytics statistics response."""
-    total_conversations: int
-    total_messages: int
-    average_duration_seconds: float
-    active_conversations: int
-
-
-@router.get("/conversations", response_model=List[ConversationResponse])
-async def get_conversations(
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db_session)
+@router.get("/conversations")
+def get_conversations(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
 ):
     """Get all conversations with pagination."""
-    analytics = AnalyticsService()
-    conversations = analytics.get_all_conversations(db, limit=limit, offset=offset)
-    
-    # Convert to response models
-    result = []
-    for conv in conversations:
-        result.append(ConversationResponse(
-            id=conv.id,  # type: ignore
-            call_sid=conv.call_sid,  # type: ignore
-            phone_number=conv.phone_number,  # type: ignore
-            started_at=conv.started_at,  # type: ignore
-            ended_at=conv.ended_at,  # type: ignore
-            duration_seconds=conv.duration_seconds,  # type: ignore
-            status=conv.status.value,  # type: ignore
-            message_count=len(conv.messages) if conv.messages else 0
-        ))
-    
-    return result
+    try:
+        conversations = analytics_service.get_all_conversations(db, skip=skip, limit=limit)
+        return {
+            "conversations": conversations,
+            "count": len(conversations),
+            "skip": skip,
+            "limit": limit
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.get("/conversations/{conversation_id}", response_model=ConversationDetailResponse)
-async def get_conversation(
-    conversation_id: UUID4,
-    db: Session = Depends(get_db_session)
+@router.get("/conversations/{conversation_id}")
+def get_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db)
 ):
-    """Get a specific conversation with all messages."""
-    analytics = AnalyticsService()
-    conversation = analytics.get_conversation_with_messages(db, str(conversation_id))
+    """Get a specific conversation by ID."""
+    try:
+        conv_uuid = uuid.UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID format")
     
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    # Convert messages
-    messages = [
-        MessageResponse(
-            id=msg.id,  # type: ignore
-            role=msg.role.value,  # type: ignore
-            content=msg.content,  # type: ignore
-            timestamp=msg.timestamp  # type: ignore
-        )
-        for msg in conversation.messages
-    ]
-    
-    return ConversationDetailResponse(
-        id=conversation.id,  # type: ignore
-        call_sid=conversation.call_sid,  # type: ignore
-        phone_number=conversation.phone_number,  # type: ignore
-        started_at=conversation.started_at,  # type: ignore
-        ended_at=conversation.ended_at,  # type: ignore
-        duration_seconds=conversation.duration_seconds,  # type: ignore
-        status=conversation.status.value,  # type: ignore
-        messages=messages
-    )
+    try:
+        conversation = analytics_service.get_conversation_by_id(db, conv_uuid)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.get("/conversations/call/{call_sid}", response_model=ConversationDetailResponse)
-async def get_conversation_by_call_sid(
+@router.get("/conversations/call/{call_sid}")
+def get_conversation_by_call_sid(
     call_sid: str,
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db)
 ):
-    """Get conversation by Twilio call SID."""
-    analytics = AnalyticsService()
-    conversation = analytics.get_conversation_by_call_sid(db, call_sid)
-    
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    # Convert messages
-    messages = [
-        MessageResponse(
-            id=msg.id,  # type: ignore
-            role=msg.role.value,  # type: ignore
-            content=msg.content,  # type: ignore
-            timestamp=msg.timestamp  # type: ignore
-        )
-        for msg in conversation.messages
-    ]
-    
-    return ConversationDetailResponse(
-        id=conversation.id,  # type: ignore
-        call_sid=conversation.call_sid,  # type: ignore
-        phone_number=conversation.phone_number,  # type: ignore
-        started_at=conversation.started_at,  # type: ignore
-        ended_at=conversation.ended_at,  # type: ignore
-        duration_seconds=conversation.duration_seconds,  # type: ignore
-        status=conversation.status.value,  # type: ignore
-        messages=messages
-    )
+    """Get a specific conversation by call SID."""
+    try:
+        conversation = analytics_service.get_conversation_by_call_sid(db, call_sid)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.get("/stats", response_model=StatsResponse)
-async def get_stats(
-    db: Session = Depends(get_db_session)
+@router.get("/conversations/{conversation_id}/messages")
+def get_conversation_messages(
+    conversation_id: str,
+    db: Session = Depends(get_db)
 ):
-    """Get overall conversation statistics."""
-    analytics = AnalyticsService()
-    stats = analytics.get_stats(db)
+    """Get all messages for a specific conversation."""
+    try:
+        conv_uuid = uuid.UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID format")
     
-    return StatsResponse(**stats)
+    try:
+        messages = analytics_service.get_conversation_messages(db, conv_uuid)
+        return {
+            "conversation_id": conversation_id,
+            "messages": messages,
+            "count": len(messages)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@router.get("/phone/{phone_number}/conversations", response_model=List[ConversationResponse])
-async def get_conversations_by_phone(
+@router.get("/users")
+def get_all_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """Get all users with pagination."""
+    try:
+        users = analytics_service.get_all_users(db, skip=skip, limit=limit)
+        return {
+            "users": users,
+            "count": len(users),
+            "skip": skip,
+            "limit": limit
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.get("/users/{phone_number}")
+def get_user(
     phone_number: str,
-    limit: int = Query(50, ge=1, le=500),
-    db: Session = Depends(get_db_session)
+    db: Session = Depends(get_db)
+):
+    """Get user information by phone number."""
+    # Validate phone number format
+    if not phone_number.startswith("+"):
+        raise HTTPException(status_code=400, detail="Phone number must start with +")
+    
+    try:
+        user = analytics_service.get_user_by_phone(db, phone_number)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.get("/users/{phone_number}/conversations")
+def get_user_conversations(
+    phone_number: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
 ):
     """Get all conversations for a specific phone number."""
-    from sqlalchemy import desc
+    # Validate phone number format
+    if not phone_number.startswith("+"):
+        raise HTTPException(status_code=400, detail="Phone number must start with +")
     
-    conversations = db.query(Conversation).filter(
-        Conversation.phone_number == phone_number
-    ).order_by(desc(Conversation.started_at)).limit(limit).all()
-    
-    result = []
-    for conv in conversations:
-        result.append(ConversationResponse(
-            id=conv.id,  # type: ignore
-            call_sid=conv.call_sid,  # type: ignore
-            phone_number=conv.phone_number,  # type: ignore
-            started_at=conv.started_at,  # type: ignore
-            ended_at=conv.ended_at,  # type: ignore
-            duration_seconds=conv.duration_seconds,  # type: ignore
-            status=conv.status.value,  # type: ignore
-            message_count=len(conv.messages) if conv.messages else 0
-        ))
-    
-    return result
+    try:
+        conversations = analytics_service.get_conversations_by_phone(db, phone_number)
+        
+        # Apply pagination
+        paginated = conversations[skip:skip + limit]
+        
+        return {
+            "phone_number": phone_number,
+            "conversations": paginated,
+            "total_count": len(conversations),
+            "count": len(paginated),
+            "skip": skip,
+            "limit": limit
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.get("/stats")
+def get_stats(db: Session = Depends(get_db)):
+    """Get overall analytics statistics."""
+    try:
+        return analytics_service.get_stats(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

@@ -1,178 +1,219 @@
-"""Service for logging and analyzing conversations."""
-import logging
-from datetime import datetime
-from typing import List, Optional, Dict, Any
+"""Analytics service for tracking conversations and user interactions."""
+from datetime import datetime, UTC
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func
+import uuid
+from typing import Optional, List, Dict, Any
 
-from src.models.conversation import Conversation, Message, ConversationStatus, MessageRole
-from src.database import get_db
-
-logger = logging.getLogger(__name__)
+from src.models import User, Conversation, Message, ConversationStatus, MessageRole
 
 
 class AnalyticsService:
-    """Service for conversation analytics and logging."""
+    """Service for analytics and conversation tracking."""
     
-    @staticmethod
+    def get_or_create_user(self, db: Session, phone_number: str) -> User:
+        """Get existing user or create new one."""
+        user = db.query(User).filter(User.phone_number == phone_number).first()
+        
+        if not user:
+            user = User(
+                id=uuid.uuid4(),
+                phone_number=phone_number,
+                created_at=datetime.now(UTC)
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        
+        return user
+    
     def create_conversation(
-        db: Session,
-        call_sid: str,
+        self, 
+        db: Session, 
+        call_sid: str, 
         phone_number: str
     ) -> Conversation:
-        """
-        Create a new conversation record.
+        """Create a new conversation."""
+        # Get or create user
+        user = self.get_or_create_user(db, phone_number)
         
-        Args:
-            db: Database session
-            call_sid: Twilio call SID
-            phone_number: Caller's phone number
-            
-        Returns:
-            Created Conversation object
-        """
+        # Update user's last call time
+        user.last_call_at = datetime.now(UTC)  # type: ignore
+        
+        # Create conversation
         conversation = Conversation(
+            id=uuid.uuid4(),
             call_sid=call_sid,
+            user_id=user.id,
             phone_number=phone_number,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
             status=ConversationStatus.ACTIVE
         )
+        
         db.add(conversation)
         db.commit()
         db.refresh(conversation)
         
-        logger.info(f"Created conversation {conversation.id} for call {call_sid}")
         return conversation
     
-    @staticmethod
     def log_message(
+        self,
         db: Session,
-        conversation_id: str,
+        conversation_id: uuid.UUID | str,
         role: MessageRole,
         content: str,
-        extra_data: Optional[Dict[str, Any]] = None
+        extra_data: Optional[str] = None
     ) -> Message:
-        """
-        Log a message in a conversation.
+        """Log a message in a conversation."""
+        # Convert string to UUID if needed
+        if isinstance(conversation_id, str):
+            conversation_id = uuid.UUID(conversation_id)
         
-        Args:
-            db: Database session
-            conversation_id: Conversation UUID
-            role: Message role (user/assistant/system)
-            content: Message content
-            extra_data: Optional metadata
-            
-        Returns:
-            Created Message object
-        """
         message = Message(
+            id=uuid.uuid4(),
             conversation_id=conversation_id,
             role=role,
             content=content,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             extra_data=extra_data
         )
+        
         db.add(message)
         db.commit()
         db.refresh(message)
         
-        logger.debug(f"Logged {role} message for conversation {conversation_id}")
         return message
     
-    @staticmethod
+    def get_conversation_by_id(
+        self,
+        db: Session,
+        conversation_id: uuid.UUID
+    ) -> Optional[Conversation]:
+        """Get conversation by ID."""
+        return db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    
+    def get_conversation_by_call_sid(
+        self, 
+        db: Session, 
+        call_sid: str
+    ) -> Optional[Conversation]:
+        """Get conversation by Twilio call SID."""
+        return db.query(Conversation).filter(Conversation.call_sid == call_sid).first()
+    
+    def get_conversation_messages(
+        self,
+        db: Session,
+        conversation_id: uuid.UUID
+    ) -> List[Message]:
+        """Get all messages for a conversation."""
+        return db.query(Message).filter(
+            Message.conversation_id == conversation_id
+        ).order_by(Message.timestamp).all()
+    
     def end_conversation(
+        self,
         db: Session,
         call_sid: str,
         status: ConversationStatus = ConversationStatus.COMPLETED
     ) -> Optional[Conversation]:
-        """
-        Mark a conversation as ended.
+        """End a conversation and calculate duration."""
+        conversation = self.get_conversation_by_call_sid(db, call_sid)
         
-        Args:
-            db: Database session
-            call_sid: Twilio call SID
-            status: Final conversation status
+        if conversation:
+            conversation.ended_at = datetime.now(UTC)  # type: ignore
+            conversation.status = status  # type: ignore
             
-        Returns:
-            Updated Conversation object or None if not found
-        """
-        conversation = db.query(Conversation).filter(
-            Conversation.call_sid == call_sid
-        ).first()
+            # Calculate duration
+            if conversation.started_at is not None:
+                # Ensure started_at is timezone-aware for calculation
+                started_at = conversation.started_at
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=UTC)
+                
+                duration = conversation.ended_at - started_at  # type: ignore
+                conversation.duration_seconds = int(duration.total_seconds())  # type: ignore
+            
+            db.commit()
+            db.refresh(conversation)
         
-        if not conversation:
-            logger.warning(f"Conversation not found for call {call_sid}")
-            return None
-        
-        # Assign to the instance attribute, not the Column object
-        setattr(conversation, 'ended_at', datetime.utcnow())
-        setattr(conversation, 'status', status.value if hasattr(status, "value") else str(status))
-        
-        if getattr(conversation, "started_at", None) is not None:
-            duration = (conversation.ended_at - conversation.started_at).total_seconds()
-            setattr(conversation, 'duration_seconds', int(duration))
-        
-        db.commit()
-        db.refresh(conversation)
-        
-        logger.info(f"Ended conversation {conversation.id} with status {status}")
         return conversation
     
-    @staticmethod
-    def get_conversation_by_call_sid(
-        db: Session,
-        call_sid: str
-    ) -> Optional[Conversation]:
-        """Get conversation by Twilio call SID."""
-        return db.query(Conversation).filter(
-            Conversation.call_sid == call_sid
-        ).first()
-    
-    @staticmethod
     def get_all_conversations(
-        db: Session,
-        limit: int = 100,
-        offset: int = 0
+        self, 
+        db: Session, 
+        skip: int = 0, 
+        limit: int = 100
     ) -> List[Conversation]:
         """Get all conversations with pagination."""
         return db.query(Conversation).order_by(
-            desc(Conversation.started_at)
-        ).limit(limit).offset(offset).all()
+            Conversation.started_at.desc()
+        ).offset(skip).limit(limit).all()
     
-    @staticmethod
-    def get_conversation_with_messages(
+    def get_all_users(
+        self,
         db: Session,
-        conversation_id: str
-    ) -> Optional[Conversation]:
-        """Get conversation with all messages."""
-        return db.query(Conversation).filter(
-            Conversation.id == conversation_id
-        ).first()
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[User]:
+        """Get all users with pagination."""
+        return db.query(User).order_by(
+            User.created_at.desc()
+        ).offset(skip).limit(limit).all()
     
-    @staticmethod
-    def get_stats(db: Session) -> Dict[str, Any]:
-        """
-        Get overall conversation statistics.
-        
-        Returns:
-            Dictionary with stats
-        """
+    def get_user_conversations(
+        self, 
+        db: Session, 
+        user_id: uuid.UUID
+    ) -> List[Conversation]:
+        """Get all conversations for a specific user."""
+        return db.query(Conversation).filter(
+            Conversation.user_id == user_id
+        ).order_by(Conversation.started_at.desc()).all()
+    
+    def get_conversations_by_phone(
+        self, 
+        db: Session, 
+        phone_number: str
+    ) -> List[Conversation]:
+        """Get all conversations for a phone number."""
+        user = db.query(User).filter(User.phone_number == phone_number).first()
+        if not user:
+            return []
+        return self.get_user_conversations(db, user.id)  # type: ignore
+    
+    def get_user_by_phone(self, db: Session, phone_number: str) -> Optional[User]:
+        """Get user by phone number."""
+        return db.query(User).filter(User.phone_number == phone_number).first()
+    
+    def get_stats(self, db: Session) -> Dict[str, Any]:
+        """Get overall statistics."""
         total_conversations = db.query(func.count(Conversation.id)).scalar()
+        total_users = db.query(func.count(User.id)).scalar()
         total_messages = db.query(func.count(Message.id)).scalar()
-        
-        avg_duration = db.query(
-            func.avg(Conversation.duration_seconds)
-        ).filter(
-            Conversation.duration_seconds.isnot(None)
-        ).scalar()
         
         active_conversations = db.query(func.count(Conversation.id)).filter(
             Conversation.status == ConversationStatus.ACTIVE
         ).scalar()
         
+        completed_conversations = db.query(func.count(Conversation.id)).filter(
+            Conversation.status == ConversationStatus.COMPLETED
+        ).scalar()
+        
+        # Calculate average duration for completed conversations
+        avg_duration = db.query(func.avg(Conversation.duration_seconds)).filter(
+            Conversation.duration_seconds.isnot(None)
+        ).scalar()
+        
+        avg_messages = 0
+        if total_conversations > 0:
+            avg_messages = total_messages / total_conversations
+        
         return {
-            "total_conversations": total_conversations or 0,
-            "total_messages": total_messages or 0,
-            "average_duration_seconds": float(avg_duration) if avg_duration else 0,
-            "active_conversations": active_conversations or 0
+            "total_users": total_users,
+            "total_conversations": total_conversations,
+            "active_conversations": active_conversations,
+            "completed_conversations": completed_conversations,
+            "total_messages": total_messages,
+            "average_messages_per_conversation": round(avg_messages, 2),
+            "average_duration_seconds": round(avg_duration, 2) if avg_duration else 0
         }
