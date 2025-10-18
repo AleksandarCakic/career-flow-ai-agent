@@ -46,4 +46,5 @@ data/reports/*
 logs/
 
 # MP3 files
-*.mp3
+*.mp3analysis_reports/
+*.json
