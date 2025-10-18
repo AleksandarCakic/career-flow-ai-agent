@@ -10,12 +10,20 @@ load_dotenv(dotenv_path=env_path)
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
-    twilio_account_sid: str
-    twilio_auth_token: str
-    twilio_phone_number: str
-    deepgram_api_key: str
-    openai_api_key: str 
-    elevenlabs_api_key: str
+    # Twilio
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_phone_number: str = ""
+    
+    # AI Services
+    deepgram_api_key: str = ""
+    openai_api_key: str = ""
+    elevenlabs_api_key: str = ""
+    
+    # Database
+    database_url: str = "postgresql://career_flow:dev_password_change_in_prod@localhost:5432/career_flow_db"
+    
+    # Application
     environment: Literal["development", "staging", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     server_host: str = "0.0.0.0"
@@ -28,4 +36,4 @@ class Settings(BaseSettings):
         extra="allow"
     )
 
-settings = Settings() # type: ignore
+settings = Settings()  # type: ignore

@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 from contextlib import asynccontextmanager
 from src.config.settings import settings
-from src.api.routes import webhooks, deepgram, voice_pipeline
+from src.api.routes import webhooks, deepgram, voice_pipeline, analytics
 import logging
 from pydantic import BaseModel, HttpUrl
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +22,16 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup
     logger.info(f"Starting Career Flow AI Agent in {settings.environment} mode")
+    try:
+        from src.database import init_db
+        logger.info("Initializing database...")
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}", exc_info=True)
+    
     yield
+    
     # Shutdown
     logger.info("Shutting down Career Flow AI Agent")
 
@@ -50,6 +59,7 @@ app.add_middleware(
 app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
 app.include_router(deepgram.router, prefix="/deepgram", tags=["Deepgram"])
 app.include_router(voice_pipeline.router, prefix="/voice-pipeline", tags=["Voice Pipeline"])
+app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 
 
 @app.get("/")
