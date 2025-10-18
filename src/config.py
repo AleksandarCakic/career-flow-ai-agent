@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     twilio_auth_token: str
     twilio_phone_number: str
     
+    # Coach phone numbers for transfers
+    alex_phone_number: str
+    
     # API Keys - Optional (for old integrations)
     deepgram_api_key: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None

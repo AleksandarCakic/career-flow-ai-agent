@@ -6,6 +6,9 @@ import uuid
 from typing import Optional, List, Dict, Any
 
 from src.models import User, Conversation, Message, ConversationStatus, MessageRole
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AnalyticsService:
@@ -217,3 +220,13 @@ class AnalyticsService:
             "average_messages_per_conversation": round(avg_messages, 2),
             "average_duration_seconds": round(avg_duration, 2) if avg_duration else 0
         }
+    
+    def update_user_name(self, db: Session, phone_number: str, first_name: str) -> User:
+        """Update user's first name."""
+        user = db.query(User).filter(User.phone_number == phone_number).first()
+        if user:
+            setattr(user, "first_name", first_name)
+            db.commit()
+            db.refresh(user)
+            logger.info(f"Updated user name: {phone_number} -> {first_name}")
+        return user

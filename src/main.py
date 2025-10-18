@@ -3,8 +3,9 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import webhooks, analytics
-from src.database import Base, engine
+from src.api.routes import webhooks, analytics, admin  # Add admin import
+from src.database import engine, Base
+from src.config import settings
 
 # Configure logging
 logging.basicConfig(
@@ -17,9 +18,10 @@ logger = logging.getLogger(__name__)
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+# Create FastAPI app
 app = FastAPI(
-    title="Career Flow AI Agent API",
-    description="Voice-based AI career counseling agent with analytics",
+    title="Career Flow AI Agent",
+    description="AI-powered voice agent for career coaching",
     version="1.0.0"
 )
 
@@ -33,24 +35,21 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
-app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
-
+app.include_router(webhooks.router, prefix="/webhooks")
+app.include_router(analytics.router, prefix="/analytics")
+app.include_router(admin.router)  # Add this line
 
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {
-        "message": "Career Flow AI Agent API",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
-
+    return {"message": "Career Flow AI Agent API", "version": "1.0.0"}
 
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "environment": "development"
-    }
+    return {"status": "healthy", "database": "connected"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -2,7 +2,8 @@
 import logging
 from fastapi import APIRouter, Form, Request, Depends
 from fastapi.responses import Response
-from twilio.twiml.voice_response import VoiceResponse, Gather
+from twilio.twiml.voice_response import VoiceResponse, Gather, Dial
+from twilio.rest import Client
 from sqlalchemy.orm import Session
 
 from src.services.voice_service import VoiceService
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 voice_service = VoiceService()
 analytics_service = AnalyticsService()
+
+# Initialize Twilio client
+twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
 @router.post("/twilio/voice")
@@ -43,19 +47,49 @@ async def handle_incoming_call(
         )
         logger.info(f"Created conversation: {conversation.id}")
         
-        # Log initial system message
+        # Check if this is a returning user
+        from src.models import User
+        user = db.query(User).filter(User.phone_number == phone_number).first()
+        
+        # Create greeting prompt based on user status
+        if user is not None and getattr(user, "first_name", None):
+            # Returning user with name
+            greeting_prompt = f"[CALL START - This is a RETURNING user named {user.first_name}. Greet them warmly by name!]"
+        else:
+            # New user or returning without name - treat the same
+            greeting_prompt = "[CALL START - Give standard greeting and ask what brings them to Career Flow.]"
+        
+        # Get initial greeting based on user context
+        initial_greeting = await voice_service.process_user_input(
+            user_input=greeting_prompt,
+            conversation_id=str(conversation.id),
+            db=db,
+            phone_number=phone_number
+        )
+        
+        # Log system message
         analytics_service.log_message(
             db=db,
-            conversation_id=conversation.id,
+            conversation_id=str(conversation.id),
             role=MessageRole.SYSTEM,
             content="Call started"
         )
+        
+        # Log AI greeting
+        analytics_service.log_message(
+            db=db,
+            conversation_id=str(conversation.id),
+            role=MessageRole.ASSISTANT,
+            content=initial_greeting
+        )
+        
     except Exception as e:
         logger.error(f"Failed to create conversation: {e}")
+        initial_greeting = "Hi, thanks for calling Career Flow, my name is Mica. How can I help you today?"
     
     # Create TwiML response
     response = VoiceResponse()
-    response.say("Hello, I'm your career advisor assistant. How can I help you today?")
+    response.say(initial_greeting, voice='Polly.Joanna')
     
     # Start gathering speech
     gather = Gather(
@@ -63,12 +97,13 @@ async def handle_incoming_call(
         action='/webhooks/twilio/process-speech',
         method='POST',
         speechTimeout='auto',
-        timeout=5
+        timeout=3,
+        language='en-US'
     )
     gather.pause(length=1)
     response.append(gather)
     
-    response.say("I didn't hear anything. Please tell me how I can help you.")
+    response.say("Sorry, I didn't catch that. What can I help you with?", voice='Polly.Joanna')
     
     return Response(content=str(response), media_type="application/xml")
 
@@ -88,37 +123,82 @@ async def process_speech(
     if not conversation:
         logger.error(f"Conversation not found for CallSid: {CallSid}")
         response = VoiceResponse()
-        response.say("Sorry, there was an error. Please try again.")
+        response.say("Sorry, there was an error. Please try again.", voice='Polly.Joanna')
         return Response(content=str(response), media_type="application/xml")
     
     # Log user message
     if SpeechResult:
         analytics_service.log_message(
             db=db,
-            conversation_id=conversation.id,
+            conversation_id=str(conversation.id),
             role=MessageRole.USER,
             content=SpeechResult
         )
+    
+    # Check if user wants to speak to human
+    wants_human = False
+    if SpeechResult:
+        human_keywords = [
+            "speak to", "talk to", "connect me", "transfer", "human",
+            "real person", "someone", "alex", "coach"
+        ]
+        wants_human = any(keyword in SpeechResult.lower() for keyword in human_keywords)
     
     # Get AI response with conversation context
     try:
         ai_response = await voice_service.process_user_input(
             user_input=SpeechResult or "",
             conversation_id=str(conversation.id),
-            db=db
+            db=db,
+            phone_number=str(conversation.phone_number)
         )
         
         # Log assistant message
         analytics_service.log_message(
             db=db,
-            conversation_id=conversation.id,
+            conversation_id=str(conversation.id),
             role=MessageRole.ASSISTANT,
             content=ai_response
         )
         
+        # Check if AI is trying to transfer (look for specific phrases)
+        attempting_transfer = any(phrase in ai_response.lower() for phrase in [
+            "connect you with alex",
+            "try to connect",
+            "let me try",
+            "connecting you"
+        ])
+        
         # Create TwiML response
         response = VoiceResponse()
-        response.say(ai_response)
+        
+        if attempting_transfer and wants_human:
+            try:
+                # AI said it would transfer - actually attempt it
+                response.say("Connecting you now.", voice='Polly.Joanna')
+                
+                # Attempt to dial Alex (add Alex's number to config)
+                dial = Dial(
+                    timeout=20,
+                    action='/webhooks/twilio/transfer-status',
+                    method='POST'
+                )
+                dial.number(settings.alex_phone_number)
+                response.append(dial)
+                
+                # Log transfer attempt
+                analytics_service.log_message(
+                    db=db,
+                    conversation_id=str(conversation.id),
+                    role=MessageRole.SYSTEM,
+                    content=f"Transfer attempted to Alex: {settings.alex_phone_number}"
+                )
+            except Exception as transfer_error:
+                logger.error(f"Transfer failed: {transfer_error}")
+                response.say("Sorry, I'm having trouble connecting the call. Can I help you with anything else?", voice='Polly.Joanna')
+        else:
+            # Normal conversation flow
+            response.say(ai_response, voice='Polly.Joanna')
         
         # Continue listening
         gather = Gather(
@@ -126,21 +206,43 @@ async def process_speech(
             action='/webhooks/twilio/process-speech',
             method='POST',
             speechTimeout='auto',
-            timeout=5
+            timeout=3,
+            language='en-US'
         )
         gather.pause(length=1)
         response.append(gather)
         
         # Fallback if no speech detected
-        response.say("Are you still there? Say goodbye to end the call, or ask me another question.")
+        response.say("Still there?", voice='Polly.Joanna')
         
         return Response(content=str(response), media_type="application/xml")
         
     except Exception as e:
         logger.error(f"Error processing speech: {e}")
         response = VoiceResponse()
-        response.say("Sorry, I encountered an error. Please try again.")
+        response.say("Sorry, I'm having a technical issue. Can you try that again?", voice='Polly.Joanna')
         return Response(content=str(response), media_type="application/xml")
+
+
+@router.post("/twilio/transfer-status")
+async def handle_transfer_status(
+    CallSid: str = Form(...),
+    DialCallStatus: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Handle call transfer status."""
+    logger.info(f"Transfer status for {CallSid}: {DialCallStatus}")
+    
+    conversation = analytics_service.get_conversation_by_call_sid(db, CallSid)
+    if conversation:
+        analytics_service.log_message(
+            db=db,
+            conversation_id=str(conversation.id),
+            role=MessageRole.SYSTEM,
+            content=f"Transfer result: {DialCallStatus}"
+        )
+    
+    return Response(content="<Response></Response>", media_type="application/xml")
 
 
 @router.post("/twilio/status")
@@ -167,7 +269,7 @@ async def handle_call_status(
                 # Log system message
                 analytics_service.log_message(
                     db=db,
-                    conversation_id=conversation.id,
+                    conversation_id=str(conversation.id),
                     role=MessageRole.SYSTEM,
                     content=f"Call ended: {CallStatus}"
                 )
@@ -199,7 +301,7 @@ async def handle_recording(
             # Log recording info
             analytics_service.log_message(
                 db=db,
-                conversation_id=conversation.id,
+                conversation_id=str(conversation.id),
                 role=MessageRole.SYSTEM,
                 content=f"Recording available",
                 extra_data=f'{{"url": "{RecordingUrl}", "duration": "{RecordingDuration}"}}'
