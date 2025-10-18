@@ -57,9 +57,10 @@ Be encouraging and supportive."""
                 conversation_uuid = UUID(conversation_id)
                 db_messages = self.analytics_service.get_conversation_messages(db, conversation_uuid)
                 for msg in db_messages:
-                    if msg.role in [MessageRole.USER, MessageRole.ASSISTANT]:
+                    if str(msg.role) in [MessageRole.USER.value, MessageRole.ASSISTANT.value]:
+                        role = "user" if str(msg.role) == MessageRole.USER.value else "assistant"
                         messages.append({
-                            "role": msg.role.value,
+                            "role": role,
                             "content": str(msg.content)
                         })
             
