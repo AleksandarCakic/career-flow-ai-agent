@@ -1,0 +1,31 @@
+# Web Framework
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# Twilio (Phone/SMS)
+twilio==9.3.7
+
+# Speech-to-Text
+deepgram-sdk==5.1.0
+
+# LLM
+anthropic==0.39.0
+
+# Text-to-Speech
+elevenlabs==1.9.0
+
+# PDF Generation
+reportlab==4.2.5
+PyPDF2==3.0.1
+
+# Utilities
+python-dotenv==1.0.1
+pydantic==2.9.2
+pydantic-settings==2.6.0
+httpx==0.27.2
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
