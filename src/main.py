@@ -3,8 +3,10 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 from contextlib import asynccontextmanager
 from src.config.settings import settings
-from src.api.routes import webhooks
+from src.api.routes import webhooks, deepgram
 import logging
+from pydantic import BaseModel, HttpUrl
+from fastapi.middleware.cors import CORSMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -30,12 +32,23 @@ app = FastAPI(
     title="Career Flow AI Agent",
     description="AI voice agent for career guidance conversations",
     version="0.1.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs",   
+    redoc_url="/redoc"
 )
 
 # Include routers
 app.include_router(webhooks.router, tags=["webhooks"])
+app.include_router(deepgram.router, prefix="/deepgram")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to specific domains in production!
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 async def root():

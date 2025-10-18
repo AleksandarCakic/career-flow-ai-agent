@@ -1,7 +1,12 @@
 """Configuration management using Pydantic settings."""
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Literal, Optional
-import os
+from typing import Literal
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Explicitly load .env file
+env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -23,4 +28,4 @@ class Settings(BaseSettings):
         extra="allow"
     )
 
-settings = Settings()
+settings = Settings() # type: ignore
